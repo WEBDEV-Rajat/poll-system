@@ -48,28 +48,28 @@ app.get('/health', (req, res) => {
 const connectDB = async () => {
   try {
     await mongoose.connect(process.env.MONGODB_URI);
-    console.log('✅ MongoDB connected successfully');
+    console.log('MongoDB connected successfully');
   } catch (error) {
-    console.error('❌ MongoDB connection error:', error);
+    console.error('MongoDB connection error:', error);
     process.exit(1);
   }
 };
 
 io.on('connection', (socket) => {
-  console.log('👤 User connected:', socket.id);
+  console.log('User connected:', socket.id);
 
   socket.on('joinPoll', (pollId) => {
     socket.join(pollId);
-    console.log(`👤 User ${socket.id} joined poll ${pollId}`);
+    console.log(`User ${socket.id} joined poll ${pollId}`);
   });
 
   socket.on('leavePoll', (pollId) => {
     socket.leave(pollId);
-    console.log(`👤 User ${socket.id} left poll ${pollId}`);
+    console.log(`User ${socket.id} left poll ${pollId}`);
   });
 
   socket.on('disconnect', () => {
-    console.log('👤 User disconnected:', socket.id);
+    console.log('User disconnected:', socket.id);
   });
 });
 
