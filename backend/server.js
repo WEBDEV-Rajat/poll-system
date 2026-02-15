@@ -31,6 +31,10 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.'
 });
 
+app.use("/", (req, res) => {
+  return res.send("Backend working");
+});
+
 app.use('/api/', limiter);
 
 app.use((req, res, next) => {
