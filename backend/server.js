@@ -31,11 +31,8 @@ const limiter = rateLimit({
   message: 'Too many requests from this IP, please try again later.'
 });
 
-app.use("/", (req, res) => {
-  return res.send("Backend working");
-});
 
-app.use('/api/', limiter);
+
 
 app.use((req, res, next) => {
   req.io = io;
@@ -43,7 +40,7 @@ app.use((req, res, next) => {
 });
 
 app.use('/api', pollRoutes);
-
+app.use('/api', limiter);
 app.get('/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
