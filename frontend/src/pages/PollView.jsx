@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import io from 'socket.io-client';
@@ -23,7 +23,11 @@ function PollView() {
   const [showQR, setShowQR] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
   const [showChangeVote, setShowChangeVote] = useState(false);
-  const qrCanvasRef = useRef(null);
+  
+  const [email, setEmail] = useState('');
+  const [verificationCode, setVerificationCode] = useState('');
+  const [codeSent, setCodeSent] = useState(false);
+  const [sendingCode, setSendingCode] = useState(false);
 
   useEffect(() => {
     const fetchPoll = async () => {
@@ -49,7 +53,6 @@ function PollView() {
     fetchPoll();
   }, [pollId]);
 
-  // Generate QR Code
   useEffect(() => {
     const generateQR = async () => {
       try {
@@ -116,29 +119,59 @@ function PollView() {
     };
   }, [pollId]);
 
-  const handleVote = async (optionId) => {
-    if (hasVoted || voting) return;
+  const handleRequestCode = async () => {
+    if (!email || !email.includes('@')) {
+      setError('Please enter a valid email address');
+      return;
+    }
+
+    setSendingCode(true);
+    setError('');
+
+    try {
+      await axios.post(`${API_URL}/polls/${pollId}/request-verification`, {
+        email
+      });
+
+      setCodeSent(true);
+      setError('');
+    } catch (err) {
+      console.error('Error requesting code:', err);
+      setError(err.response?.data?.error || 'Failed to send verification code');
+      if (err.response?.data?.alreadyVoted) {
+        setHasVoted(true);
+      }
+    } finally {
+      setSendingCode(false);
+    }
+  };
+
+  const handleVerifiedVote = async (optionId) => {
+    if (!verificationCode || verificationCode.length !== 6) {
+      setError('Please enter the 6-digit verification code');
+      return;
+    }
 
     setVoting(true);
     setError('');
 
     try {
-      await axios.post(`${API_URL}/polls/${pollId}/vote`, {
-        optionId
+      await axios.post(`${API_URL}/polls/${pollId}/vote-verified`, {
+        optionId,
+        email,
+        code: verificationCode
       });
 
       setHasVoted(true);
       setVotedOptionId(optionId);
+      setCodeSent(false);
+      setVerificationCode('');
     } catch (err) {
       console.error('Error voting:', err);
+      setError(err.response?.data?.error || 'Failed to record vote');
       
       if (err.response?.data?.alreadyVoted) {
-        setError('You have already voted in this poll');
         setHasVoted(true);
-      } else if (err.response?.data?.rateLimited) {
-        setError('Rate limit exceeded. Please try again later.');
-      } else {
-        setError(err.response?.data?.error || 'Failed to record vote. Please try again.');
       }
     } finally {
       setVoting(false);
@@ -153,7 +186,8 @@ function PollView() {
 
     try {
       await axios.put(`${API_URL}/polls/${pollId}/vote`, {
-        newOptionId
+        newOptionId,
+        email: email || undefined
       });
 
       setVotedOptionId(newOptionId);
@@ -161,7 +195,7 @@ function PollView() {
       setError('');
     } catch (err) {
       console.error('Error changing vote:', err);
-      setError(err.response?.data?.error || 'Failed to change vote. Please try again.');
+      setError(err.response?.data?.error || 'Failed to change vote');
     } finally {
       setVoting(false);
     }
@@ -175,14 +209,19 @@ function PollView() {
     setError('');
 
     try {
-      await axios.delete(`${API_URL}/polls/${pollId}/vote`);
+      await axios.delete(`${API_URL}/polls/${pollId}/vote`, {
+        data: { email: email || undefined }
+      });
 
       setHasVoted(false);
       setVotedOptionId(null);
       setShowChangeVote(false);
+      setEmail('');
+      setCodeSent(false);
+      setVerificationCode('');
     } catch (err) {
       console.error('Error removing vote:', err);
-      setError(err.response?.data?.error || 'Failed to remove vote. Please try again.');
+      setError(err.response?.data?.error || 'Failed to remove vote');
     } finally {
       setVoting(false);
     }
@@ -278,6 +317,95 @@ function PollView() {
             </div>
           )}
 
+          {!hasVoted && !codeSent && (
+            <div className="mb-5 sm:mb-6 p-4 sm:p-5 bg-blue-50 border-2 border-blue-200 rounded-lg">
+              <div className="flex items-start gap-3 mb-4">
+                <svg className="w-6 h-6 text-blue-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+                </svg>
+                <div className="flex-1">
+                  <h3 className="text-sm sm:text-base font-bold text-gray-900 mb-1">
+                    Verify your email to vote
+                  </h3>
+                  <p className="text-xs sm:text-sm text-gray-700">
+                    Enter your email address to receive a verification code. This ensures one vote per person.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="flex flex-col sm:flex-row gap-2">
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="your.email@example.com"
+                  className="flex-1 px-3 sm:px-4 py-2.5 text-sm sm:text-base border-2 border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  disabled={sendingCode}
+                />
+                <button
+                  onClick={handleRequestCode}
+                  disabled={sendingCode || !email}
+                  className="px-4 sm:px-6 py-2.5 bg-blue-600 text-white text-sm sm:text-base font-semibold rounded-md hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed whitespace-nowrap"
+                >
+                  {sendingCode ? 'Sending...' : 'Send Code'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {!hasVoted && codeSent && (
+            <div className="mb-5 sm:mb-6 p-4 sm:p-5 bg-green-50 border-2 border-green-200 rounded-lg">
+              <div className="flex items-start gap-3 mb-4">
+                <svg className="w-6 h-6 text-green-600 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <div className="flex-1">
+                  <p className="text-sm sm:text-base font-bold text-green-900 mb-1">
+                    Verification code sent!
+                  </p>
+                  <p className="text-xs sm:text-sm text-green-800">
+                    Check your email at <strong>{email}</strong> and enter the 6-digit code below.
+                  </p>
+                </div>
+              </div>
+              
+              <div className="mb-3">
+                <label className="block text-xs sm:text-sm font-medium text-gray-700 mb-2">
+                  Enter Verification Code
+                </label>
+                <input
+                  type="text"
+                  value={verificationCode}
+                  onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  placeholder="000000"
+                  maxLength={6}
+                  className="w-full px-3 sm:px-4 py-3 text-center text-xl sm:text-2xl font-mono font-bold border-2 border-gray-300 rounded-md focus:ring-2 focus:ring-green-500 focus:border-green-500 tracking-widest"
+                />
+              </div>
+              
+              <div className="flex items-center justify-between pt-2">
+                <p className="text-xs text-gray-600">
+                  Code expires in 10 minutes
+                </p>
+                <button
+                  onClick={() => {
+                    setCodeSent(false);
+                    setVerificationCode('');
+                  }}
+                  className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                >
+                  Use different email
+                </button>
+              </div>
+              
+              <div className="mt-4 p-3 bg-white border border-green-200 rounded-md">
+                <p className="text-xs sm:text-sm text-gray-700 font-medium">
+                  ✓ Now click on an option below to cast your vote
+                </p>
+              </div>
+            </div>
+          )}
+
           {hasVoted && !showChangeVote && (
             <div className="mb-5 sm:mb-6 p-2.5 sm:p-3 bg-green-50 border border-green-200 rounded-md">
               <div className="flex items-center justify-between">
@@ -328,17 +456,26 @@ function PollView() {
             {poll.options.map((option) => {
               const percentage = calculatePercentage(option.votes);
               const isCurrentVote = votedOptionId === option._id;
+              const canClick = (codeSent && verificationCode.length === 6) || showChangeVote;
               
               return (
                 <button
                   key={option._id}
-                  onClick={() => showChangeVote ? handleChangeVote(option._id) : handleVote(option._id)}
-                  disabled={(hasVoted && !showChangeVote) || voting}
+                  onClick={() => {
+                    if (showChangeVote) {
+                      handleChangeVote(option._id);
+                    } else if (canClick) {
+                      handleVerifiedVote(option._id);
+                    }
+                  }}
+                  disabled={(hasVoted && !showChangeVote) || voting || !canClick}
                   className={`
                     relative w-full p-3 sm:p-4 rounded-md border text-left transition-all
                     ${hasVoted && !showChangeVote
                       ? 'border-gray-300 bg-gray-50 cursor-default' 
-                      : 'border-gray-300 hover:border-blue-500 hover:bg-blue-50 cursor-pointer active:scale-[0.98]'
+                      : canClick
+                        ? 'border-blue-300 bg-blue-50 hover:border-blue-500 hover:bg-blue-100 cursor-pointer active:scale-[0.98]'
+                        : 'border-gray-200 bg-gray-50 cursor-not-allowed opacity-60'
                     }
                     ${voting ? 'opacity-50 cursor-not-allowed' : ''}
                     ${isCurrentVote && hasVoted ? 'ring-2 ring-green-500' : ''}

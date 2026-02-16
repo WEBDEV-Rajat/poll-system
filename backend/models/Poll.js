@@ -1,36 +1,23 @@
 import mongoose from 'mongoose';
-
-const voteSchema = new mongoose.Schema({
-  optionId: {
-    type: mongoose.Schema.Types.ObjectId,
-    required: true
-  },
-  ipAddress: String,
-  fingerprint: String,
-  votedAt: {
-    type: Date,
-    default: Date.now
-  }
-});
-
-const optionSchema = new mongoose.Schema({
-  text: {
-    type: String,
-    required: true
-  },
-  votes: {
-    type: Number,
-    default: 0
-  }
-});
+import voteSchema from './Vote.js';
+import optionSchema from './Option.js';
 
 const pollSchema = new mongoose.Schema({
   question: {
     type: String,
     required: true,
-    trim: true
+    trim: true,
+    maxLength: 200
   },
-  options: [optionSchema],
+  options: {
+    type: [optionSchema],
+    validate: {
+      validator: function(options) {
+        return options.length >= 2 && options.length <= 10;
+      },
+      message: 'Poll must have between 2 and 10 options'
+    }
+  },
   votes: [voteSchema],
   createdAt: {
     type: Date,
@@ -38,19 +25,9 @@ const pollSchema = new mongoose.Schema({
   }
 });
 
-pollSchema.methods.hasUserVoted = function(ipAddress, fingerprint) {
-  return this.votes.some(vote => 
-    vote.ipAddress === ipAddress && vote.fingerprint === fingerprint
-  );
-};
-
-pollSchema.methods.canUserVote = function(ipAddress) {
-  const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
-  const recentVotes = this.votes.filter(vote => 
-    vote.ipAddress === ipAddress && vote.votedAt > oneDayAgo
-  );
-  return recentVotes.length === 0;
-};
+pollSchema.index({ createdAt: -1 });
+pollSchema.index({ 'votes.email': 1 });
+pollSchema.index({ 'votes.ipAddress': 1, 'votes.fingerprint': 1 });
 
 const Poll = mongoose.model('Poll', pollSchema);
 
