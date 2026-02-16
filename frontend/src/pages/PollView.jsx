@@ -18,6 +18,7 @@ function PollView() {
   const [votedOptionId, setVotedOptionId] = useState(null);
   const [error, setError] = useState('');
   const [socket, setSocket] = useState(null);
+  const [socketConnected, setSocketConnected] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showQR, setShowQR] = useState(false);
   const [qrCodeUrl, setQrCodeUrl] = useState('');
@@ -79,7 +80,13 @@ function PollView() {
 
     newSocket.on('connect', () => {
       console.log('Socket connected');
+      setSocketConnected(true);
       newSocket.emit('joinPoll', pollId);
+    });
+
+    newSocket.on('disconnect', () => {
+      console.log('Socket disconnected');
+      setSocketConnected(false);
     });
 
     newSocket.on('voteUpdate', (data) => {
@@ -433,11 +440,11 @@ function PollView() {
         )}
 
         <div className="text-center text-xs sm:text-sm">
-          {socket?.connected ? (
+          {socketConnected ? (
             <span className="text-green-600 font-medium">● Connected</span>
           ) : (
             <span className="inline-flex items-center text-gray-500">
-              <span className="w-2 h-2 bg-gray-400 rounded-full mr-2"></span>
+              <span className="w-2 h-2 bg-gray-400 rounded-full mr-2 animate-pulse"></span>
               Connecting...
             </span>
           )}
