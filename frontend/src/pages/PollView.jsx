@@ -1,7 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import io from 'socket.io-client';
+import QRCode from 'qrcode';
 
 const API_URL = import.meta.env.VITE_API_URL;
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
@@ -14,9 +15,14 @@ function PollView() {
   const [loading, setLoading] = useState(true);
   const [voting, setVoting] = useState(false);
   const [hasVoted, setHasVoted] = useState(false);
+  const [votedOptionId, setVotedOptionId] = useState(null);
   const [error, setError] = useState('');
   const [socket, setSocket] = useState(null);
   const [copied, setCopied] = useState(false);
+  const [showQR, setShowQR] = useState(false);
+  const [qrCodeUrl, setQrCodeUrl] = useState('');
+  const [showChangeVote, setShowChangeVote] = useState(false);
+  const qrCanvasRef = useRef(null);
 
   useEffect(() => {
     const fetchPoll = async () => {
@@ -26,6 +32,7 @@ function PollView() {
 
         const voteCheckResponse = await axios.get(`${API_URL}/polls/${pollId}/check-vote`);
         setHasVoted(voteCheckResponse.data.hasVoted);
+        setVotedOptionId(voteCheckResponse.data.votedOptionId);
       } catch (err) {
         console.error('Error fetching poll:', err);
         if (err.response?.status === 404) {
@@ -39,6 +46,30 @@ function PollView() {
     };
 
     fetchPoll();
+  }, [pollId]);
+
+  // Generate QR Code
+  useEffect(() => {
+    const generateQR = async () => {
+      try {
+        const pollUrl = window.location.href;
+        const qrDataUrl = await QRCode.toDataURL(pollUrl, {
+          width: 300,
+          margin: 2,
+          color: {
+            dark: '#2563eb',
+            light: '#ffffff'
+          }
+        });
+        setQrCodeUrl(qrDataUrl);
+      } catch (err) {
+        console.error('Error generating QR code:', err);
+      }
+    };
+
+    if (pollId) {
+      generateQR();
+    }
   }, [pollId]);
 
   useEffect(() => {
@@ -90,6 +121,7 @@ function PollView() {
       });
 
       setHasVoted(true);
+      setVotedOptionId(optionId);
     } catch (err) {
       console.error('Error voting:', err);
       
@@ -106,11 +138,61 @@ function PollView() {
     }
   };
 
+  const handleChangeVote = async (newOptionId) => {
+    if (voting) return;
+
+    setVoting(true);
+    setError('');
+
+    try {
+      await axios.put(`${API_URL}/polls/${pollId}/vote`, {
+        newOptionId
+      });
+
+      setVotedOptionId(newOptionId);
+      setShowChangeVote(false);
+      setError('');
+    } catch (err) {
+      console.error('Error changing vote:', err);
+      setError(err.response?.data?.error || 'Failed to change vote. Please try again.');
+    } finally {
+      setVoting(false);
+    }
+  };
+
+  const handleRemoveVote = async () => {
+    if (voting) return;
+    if (!window.confirm('Are you sure you want to remove your vote?')) return;
+
+    setVoting(true);
+    setError('');
+
+    try {
+      await axios.delete(`${API_URL}/polls/${pollId}/vote`);
+
+      setHasVoted(false);
+      setVotedOptionId(null);
+      setShowChangeVote(false);
+    } catch (err) {
+      console.error('Error removing vote:', err);
+      setError(err.response?.data?.error || 'Failed to remove vote. Please try again.');
+    } finally {
+      setVoting(false);
+    }
+  };
+
   const copyShareLink = () => {
     const shareUrl = window.location.href;
     navigator.clipboard.writeText(shareUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const downloadQRCode = () => {
+    const link = document.createElement('a');
+    link.download = `poll-${pollId}-qr.png`;
+    link.href = qrCodeUrl;
+    link.click();
   };
 
   const calculatePercentage = (votes) => {
@@ -189,15 +271,48 @@ function PollView() {
             </div>
           )}
 
-          {hasVoted && (
+          {hasVoted && !showChangeVote && (
             <div className="mb-5 sm:mb-6 p-2.5 sm:p-3 bg-green-50 border border-green-200 rounded-md">
-              <div className="flex items-center">
-                <svg className="w-4 h-4 sm:w-5 sm:h-5 text-green-600 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <span className="text-xs sm:text-sm text-green-800 font-medium">
-                  Your vote has been recorded. Results update in real-time.
+              <div className="flex items-center justify-between">
+                <div className="flex items-center">
+                  <svg className="w-4 h-4 sm:w-5 sm:h-5 text-green-600 mr-2 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span className="text-xs sm:text-sm text-green-800 font-medium">
+                    Your vote has been recorded.
+                  </span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setShowChangeVote(true)}
+                    className="text-xs sm:text-sm text-blue-600 hover:text-blue-700 font-medium"
+                  >
+                    Change
+                  </button>
+                  <button
+                    onClick={handleRemoveVote}
+                    disabled={voting}
+                    className="text-xs sm:text-sm text-red-600 hover:text-red-700 font-medium disabled:opacity-50"
+                  >
+                    Remove
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {showChangeVote && (
+            <div className="mb-5 sm:mb-6 p-3 sm:p-4 bg-blue-50 border border-blue-200 rounded-md">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm font-medium text-blue-900">
+                  Select a new option:
                 </span>
+                <button
+                  onClick={() => setShowChangeVote(false)}
+                  className="text-xs text-blue-600 hover:text-blue-700"
+                >
+                  Cancel
+                </button>
               </div>
             </div>
           )}
@@ -205,22 +320,24 @@ function PollView() {
           <div className="space-y-2.5 sm:space-y-3 mb-5 sm:mb-6">
             {poll.options.map((option) => {
               const percentage = calculatePercentage(option.votes);
+              const isCurrentVote = votedOptionId === option._id;
               
               return (
                 <button
                   key={option._id}
-                  onClick={() => handleVote(option._id)}
-                  disabled={hasVoted || voting}
+                  onClick={() => showChangeVote ? handleChangeVote(option._id) : handleVote(option._id)}
+                  disabled={(hasVoted && !showChangeVote) || voting}
                   className={`
                     relative w-full p-3 sm:p-4 rounded-md border text-left transition-all
-                    ${hasVoted 
+                    ${hasVoted && !showChangeVote
                       ? 'border-gray-300 bg-gray-50 cursor-default' 
                       : 'border-gray-300 hover:border-blue-500 hover:bg-blue-50 cursor-pointer active:scale-[0.98]'
                     }
                     ${voting ? 'opacity-50 cursor-not-allowed' : ''}
+                    ${isCurrentVote && hasVoted ? 'ring-2 ring-green-500' : ''}
                   `}
                 >
-                  {hasVoted && (
+                  {hasVoted && !showChangeVote && (
                     <div 
                       className="absolute inset-0 bg-blue-100 rounded-md transition-all duration-500"
                       style={{ width: `${percentage}%` }}
@@ -228,11 +345,18 @@ function PollView() {
                   )}
 
                   <div className="relative flex items-center justify-between gap-3">
-                    <span className="text-sm sm:text-base font-medium text-gray-900 break-words flex-1">
-                      {option.text}
-                    </span>
+                    <div className="flex items-center gap-2 flex-1">
+                      {isCurrentVote && hasVoted && (
+                        <svg className="w-4 h-4 text-green-600 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                      <span className="text-sm sm:text-base font-medium text-gray-900 break-words">
+                        {option.text}
+                      </span>
+                    </div>
                     
-                    {hasVoted && (
+                    {hasVoted && !showChangeVote && (
                       <div className="flex items-center gap-2 sm:gap-3 shrink-0">
                         <span className="text-lg sm:text-xl font-bold text-blue-600">
                           {percentage}%
@@ -270,15 +394,43 @@ function PollView() {
                 </>
               )}
             </button>
+
+            <button
+              onClick={() => setShowQR(!showQR)}
+              className="flex-1 px-4 py-2.5 sm:py-2 bg-white border border-gray-300 text-gray-700 text-sm sm:text-base font-medium rounded-md hover:bg-gray-50 flex items-center justify-center"
+            >
+              <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z" />
+              </svg>
+              {showQR ? 'Hide' : 'Show'} QR
+            </button>
             
             <button
               onClick={() => navigate('/')}
               className="flex-1 px-4 py-2.5 sm:py-2 bg-blue-600 text-white text-sm sm:text-base font-medium rounded-md hover:bg-blue-700"
             >
-              Create New Poll
+              New Poll
             </button>
           </div>
         </div>
+
+        {showQR && qrCodeUrl && (
+          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6 mb-4 text-center">
+            <h3 className="text-lg font-semibold text-gray-900 mb-4">Scan to Vote</h3>
+            <div className="inline-block p-4 bg-white border-2 border-gray-200 rounded-lg">
+              <img src={qrCodeUrl} alt="Poll QR Code" className="w-64 h-64 mx-auto" />
+            </div>
+            <button
+              onClick={downloadQRCode}
+              className="mt-4 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 inline-flex items-center"
+            >
+              <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              Download QR Code
+            </button>
+          </div>
+        )}
 
         <div className="text-center text-xs sm:text-sm">
           {socket?.connected ? (
