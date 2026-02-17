@@ -10,6 +10,8 @@ export const sendEmail = async ({ email, subject, htmlContent }) => {
         user: process.env.EMAIL_USER,
         pass: process.env.EMAIL_PASS,
       },
+      family:4,
+      secure:false
     });
     const options = {
       from: process.env.EMAIL_USER,
