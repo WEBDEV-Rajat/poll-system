@@ -3,6 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import io from 'socket.io-client';
 import QRCode from 'qrcode';
+import { sendVerificationEmail } from '../utils/emailService.js';
 
 const API_URL = import.meta.env.VITE_API_URL;
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL;
@@ -129,17 +130,26 @@ function PollView() {
     setError('');
 
     try {
-      await axios.post(`${API_URL}/polls/${pollId}/request-verification`, {
+      const response = await axios.post(`${API_URL}/polls/${pollId}/request-verification`, {
         email
       });
+
+      const { code } = response.data;
+
+      await sendVerificationEmail(email, code);
 
       setCodeSent(true);
       setError('');
     } catch (err) {
       console.error('Error requesting code:', err);
-      setError(err.response?.data?.error || 'Failed to send verification code');
+
       if (err.response?.data?.alreadyVoted) {
         setHasVoted(true);
+        setError(err.response.data.error);
+      } else if (err.message?.includes('EmailJS')) {
+        setError('Email service not configured. Please contact the poll creator.');
+      } else {
+        setError(err.response?.data?.error || 'Failed to send verification code. Please try again.');
       }
     } finally {
       setSendingCode(false);
